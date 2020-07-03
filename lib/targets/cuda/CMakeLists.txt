@@ -11,3 +11,7 @@ target_compile_options(quda_cuda_target PRIVATE $<TARGET_PROPERTY:quda_cpp,COMPI
 
 #add alias
 add_library(quda_target ALIAS quda_cuda_target)
+
+if(QUDA_NVSHMEM AND QUDA_DOWNLOAD_NVSHMEM)
+  add_dependencies(quda_cuda_target NVSHMEM)
+endif()

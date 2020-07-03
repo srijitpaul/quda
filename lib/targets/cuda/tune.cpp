@@ -511,6 +511,11 @@ namespace quda
 
   void setPolicyTuning(bool policy_tuning_) { policy_tuning = policy_tuning_; }
 
+  static bool uber_tuning = false;
+  bool uberTuning() { return uber_tuning; }
+
+  void setUberTuning(bool uber_tuning_) { uber_tuning = uber_tuning_; }
+
   // flush profile, setting counts to zero
   void flushProfile()
   {
@@ -743,7 +748,7 @@ namespace quda
       /* As long as global reductions are not disabled, only do the
          tuning on node 0, else do the tuning on all nodes since we
          can't guarantee that all nodes are partaking */
-      if (comm_rank() == 0 || !commGlobalReduction() || policyTuning()) {
+      if (comm_rank() == 0 || !commGlobalReduction() || policyTuning() || uberTuning()) {
         TuneParam best_param;
         cudaError_t error = cudaSuccess;
         cudaEvent_t start, end;
@@ -772,7 +777,9 @@ namespace quda
           cudaDeviceSynchronize();
           cudaGetLastError(); // clear error counter
           tunable.checkLaunchParam(param);
-          tunable.apply(0); // do initial call in case we need to jit compile for these parameters or if policy tuning
+          auto warmups = uberTuning() ? 5 : 1;
+          for (int j = 0; j < warmups; j++)
+            tunable.apply(0); // do initial call in case we need to jit compile for these parameters or if policy tuning
           if (verbosity >= QUDA_DEBUG_VERBOSE) {
             printfQuda("About to call tunable.apply block=(%d,%d,%d) grid=(%d,%d,%d) shared_bytes=%d aux=(%d,%d,%d)\n",
                        param.block.x, param.block.y, param.block.z, param.grid.x, param.grid.y, param.grid.z,
@@ -843,7 +850,7 @@ namespace quda
         param = best_param;
         tunecache[key] = best_param;
       }
-      if (commGlobalReduction() || policyTuning()) broadcastTuneCache();
+      if (commGlobalReduction() || policyTuning() || uberTuning()) broadcastTuneCache();
 
       // check this process is getting the key that is expected
       if (tunecache.find(key) == tunecache.end()) {

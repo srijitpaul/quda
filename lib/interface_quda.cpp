@@ -49,6 +49,12 @@
 #endif
 #include <gauge_update_quda.h>
 
+#if defined(NVSHMEM_COMMS)
+#include <mpi.h>
+#include <nvshmem.h>
+#include <nvshmemx.h>
+#endif
+
 #define MAX(a,b) ((a)>(b)? (a):(b))
 #define TDIFF(a,b) (b.tv_sec - a.tv_sec + 0.000001*(b.tv_usec - a.tv_usec))
 
@@ -642,7 +648,14 @@ void initQudaMemory()
   profileInit.TPSTART(QUDA_PROFILE_INIT);
 
   if (!comms_initialized) init_default_comms();
-
+#if defined(NVSHMEM_COMMS)
+  // MPI_Init(&argc, &argv);
+  MPI_Comm tmp = MPI_COMM_WORLD;
+  printfQuda("Init NVSHMEM\n");
+  nvshmemx_init_attr_t attr;
+  attr.mpi_comm = &tmp;
+  nvshmemx_init_attr(NVSHMEMX_INIT_WITH_MPI_COMM, &attr);
+#endif
   streams = new qudaStream_t[Nstream];
 
   int greatestPriority;

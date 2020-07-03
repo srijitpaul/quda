@@ -625,6 +625,21 @@ namespace quda {
    */
   void setPolicyTuning(bool);
 
+  /**
+   * @brief Enable / disable whether are tuning a policy
+   */
+  bool policyTuning();
+
+  /**
+   * @brief Enable / disable whether are tuning a policy
+   */
+  void setUberTuning(bool);
+
+  /**
+   * @brief Enable / disable whether are tuning a policy
+   */
+  bool uberTuning();
+
 } // namespace quda
 
 // undo jit-safe modifications

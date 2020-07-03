@@ -2,8 +2,15 @@
 
 // STRIPED - spread the blocks throughout the workload to ensure we
 // work on all directions/dimensions simultanesouly to maximize NVLink saturation
-#define STRIPED
 // if not STRIPED then this means we assign one thread block per direction / dimension
+
+#ifdef NVSHMEM_COMMS
+#include <nvshmem.h>
+#include <nvshmemx.h>
+#else
+// MWTODO: how to handle striped ...
+#define STRIPED 1
+#endif
 
 #include <dslash_quda.h>
 #include <kernels/dslash_pack.cuh>
@@ -11,7 +18,7 @@
 namespace quda
 {
 
-  static int commDim[QUDA_MAX_DIM];
+  // static int commDim[QUDA_MAX_DIM];
 
   int* getPackComms() { return commDim; }
 
@@ -62,12 +69,13 @@ protected:
     const double b;
     const double c;
     int twist; // only has meaning for nSpin=4
+    int shmem;
 
     bool tuneGridDim() const { return true; } // If striping, always tune grid dimension
 
     unsigned int maxGridSize() const
     {
-      if (location & Host) {
+      if (location & Host || location & Shmem) {
 #ifdef STRIPED
         // if zero-copy policy then set a maximum number of blocks to be
         // the 3 * number of dimensions we are communicating
@@ -75,11 +83,11 @@ protected:
 #else
         // if zero-copy policy then assign exactly up to four thread blocks
         // per direction per dimension (effectively no grid-size tuning)
-        int max = 2 * 4;
+        int max = ((shmem & 32) || (location & Host)) ? 4 : -1;
 #endif
         int nDimComms = 0;
         for (int d = 0; d < in.Ndim(); d++) nDimComms += commDim[d];
-        return max * nDimComms;
+        return max > 0 ? max * nDimComms : TunableVectorYZ::maxGridSize();
       } else {
         return TunableVectorYZ::maxGridSize();
       }
@@ -87,11 +95,11 @@ protected:
 
     unsigned int minGridSize() const
     {
-      if (location & Host) {
+      if (location & Host || location & Shmem) {
 #ifdef STRIPED
         // if zero-copy policy then set a minimum number of blocks to be
         // the 1 * number of dimensions we are communicating
-        int min = 3;
+        int min = 1;
 #else
         // if zero-copy policy then assign exactly one thread block
         // per direction per dimension (effectively no grid-size tuning)
@@ -99,7 +107,7 @@ protected:
 #endif
         int nDimComms = 0;
         for (int d = 0; d < in.Ndim(); d++) nDimComms += commDim[d];
-        return min * nDimComms;
+        return min > 0 ? min * nDimComms : TunableVectorYZ::minGridSize();
       } else {
         return TunableVectorYZ::minGridSize();
       }
@@ -107,10 +115,7 @@ protected:
 
     int gridStep() const
     {
-#ifdef STRIPED
-      return TunableVectorYZ::gridStep();
-#else
-      if (location & Host) {
+      if (location & Host || location & Shmem) {
         // the shmem kernel must ensure the grid size autotuner
         // increments in steps of 2 * number partitioned dimensions
         // for equal division of blocks to each direction/dimension
@@ -120,7 +125,6 @@ protected:
       } else {
         return TunableVectorYZ::gridStep();
       }
-#endif
     }
 
     bool tuneAuxDim() const { return true; } // Do tune the aux dimensions.
@@ -149,10 +153,6 @@ protected:
       if (twist && a == 0.0) errorQuda("Twisted packing requires non-zero scale factor a");
       if (twist) strcat(aux, twist == 2 ? ",twist-doublet" : ",twist-singlet");
 
-#ifndef STRIPED
-      if (location & Host) strcat(aux, ",shmem");
-#endif
-
       // label the locations we are packing to
       // location label is nonp2p-p2p
       switch ((int)location) {
@@ -160,35 +160,37 @@ protected:
       case Host | Remote: strcat(aux, ",host-remote"); break;
       case Device: strcat(aux, ",device-device"); break;
       case Host: strcat(aux, comm_peer2peer_enabled_global() ? ",host-device" : ",host-host"); break;
+      case Shmem: shmem & 32 ? strcat(aux, ",shmem=32") : strcat(aux, ",shmem=0"); break;
       default: errorQuda("Unknown pack target location %d\n", location);
       }
     }
 
 public:
-    Pack(void *ghost[], const ColorSpinorField &in, MemoryLocation location, int nFace, bool dagger, int parity,
-        double a, double b, double c) :
-        TunableVectorYZ((in.Ndim() == 5 ? in.X(4) : 1), in.SiteSubset()),
-        ghost(ghost),
-        in(in),
-        location(location),
-        nFace(nFace),
-        dagger(dagger),
-        parity(parity),
-        nParity(in.SiteSubset()),
-        threads(0),
-        a(a),
-        b(b),
-        c(c)
-    {
-      fillAux();
+  Pack(void *ghost[], const ColorSpinorField &in, MemoryLocation location, int nFace, bool dagger, int parity, double a,
+       double b, double c, int shmem_) :
+    TunableVectorYZ((in.Ndim() == 5 ? in.X(4) : 1), in.SiteSubset()),
+    ghost(ghost),
+    in(in),
+    location(location),
+    nFace(nFace),
+    dagger(dagger),
+    parity(parity),
+    nParity(in.SiteSubset()),
+    threads(0),
+    a(a),
+    b(b),
+    c(c),
+    shmem(shmem_)
+  {
+    fillAux();
 
-      // compute number of threads - really number of active work items we have to do
-      for (int i = 0; i < 4; i++) {
-        if (!commDim[i]) continue;
-        if (i == 3 && !getKernelPackT()) continue;
-        threads += 2 * nFace * in.getDslashConstant().ghostFaceCB[i]; // 2 for forwards and backwards faces
-      }
+    // compute number of threads - really number of active work items we have to do
+    for (int i = 0; i < 4; i++) {
+      if (!commDim[i]) continue;
+      if (i == 3 && !getKernelPackT()) continue;
+      threads += 2 * nFace * in.getDslashConstant().ghostFaceCB[i]; // 2 for forwards and backwards faces
     }
+  }
 
     virtual ~Pack() {}
 
@@ -209,7 +211,8 @@ public:
 
       if (in.Nspin() == 4) {
         using Arg = PackArg<Float, nColor, 4, spin_project>;
-        Arg arg(ghost, in, nFace, dagger, parity, threads, a, b, c);
+        Arg arg(ghost, in, nFace, dagger, parity, threads, a, b, c, shmem);
+        arg.counter = dslash::synccounter;
         arg.swizzle = tp.aux.x;
         arg.sites_per_block = (arg.threads + tp.grid.x - 1) / tp.grid.x;
         arg.blocks_per_dir = tp.grid.x / (2 * arg.active_dims); // set number of blocks per direction
@@ -243,23 +246,27 @@ public:
           if (arg.dagger) {
             switch (arg.twist) {
             case 0:
-              launch(location & Host ? packShmemKernel<true, 0, QUDA_4D_PC, Arg> : packKernel<true, 0, QUDA_4D_PC, Arg>,
-                  tp, arg, stream);
+              launch((location & Host || location & Shmem) ? packShmemKernel<true, 0, QUDA_4D_PC, Arg> :
+                                                             packKernel<true, 0, QUDA_4D_PC, Arg>,
+                     tp, arg, stream);
               break;
             case 1:
-              launch(location & Host ? packShmemKernel<true, 1, QUDA_4D_PC, Arg> : packKernel<true, 0, QUDA_4D_PC, Arg>,
-                  tp, arg, stream);
+              launch((location & Host || location & Shmem) ? packShmemKernel<true, 1, QUDA_4D_PC, Arg> :
+                                                             packKernel<true, 0, QUDA_4D_PC, Arg>,
+                     tp, arg, stream);
               break;
             case 2:
-              launch(location & Host ? packShmemKernel<true, 2, QUDA_4D_PC, Arg> : packKernel<true, 2, QUDA_4D_PC, Arg>,
-                  tp, arg, stream);
+              launch((location & Host || location & Shmem) ? packShmemKernel<true, 2, QUDA_4D_PC, Arg> :
+                                                             packKernel<true, 2, QUDA_4D_PC, Arg>,
+                     tp, arg, stream);
               break;
             }
           } else {
             switch (arg.twist) {
             case 0:
-              launch(location & Host ? packShmemKernel<false, 0, QUDA_4D_PC, Arg> : packKernel<false, 0, QUDA_4D_PC, Arg>,
-                  tp, arg, stream);
+              launch((location & Host || location & Shmem) ? packShmemKernel<false, 0, QUDA_4D_PC, Arg> :
+                                                             packKernel<false, 0, QUDA_4D_PC, Arg>,
+                     tp, arg, stream);
               break;
             default: errorQuda("Twisted packing only for dagger");
             }
@@ -276,6 +283,7 @@ public:
       } else if (in.Nspin() == 1) {
         using Arg = PackArg<Float, nColor, 1, false>;
         Arg arg(ghost, in, nFace, dagger, parity, threads, a, b, c);
+        arg.counter = dslash::synccounter;
         arg.swizzle = tp.aux.x;
         arg.sites_per_block = (arg.threads + tp.grid.x - 1) / tp.grid.x;
         arg.blocks_per_dir = tp.grid.x / (2 * arg.active_dims); // set number of blocks per direction
@@ -283,7 +291,8 @@ public:
 #ifdef STRIPED
         launch(packStaggeredKernel<Arg>, tp, arg, stream);
 #else
-        launch(location & Host ? packStaggeredShmemKernel<Arg> : packStaggeredKernel<Arg>, tp, arg, stream);
+        launch((location & Host || location & Shmem) ? packStaggeredShmemKernel<Arg> : packStaggeredKernel<Arg>, tp,
+               arg, stream);
 #endif
       } else {
         errorQuda("Unsupported nSpin = %d\n", in.Nspin());
@@ -304,9 +313,9 @@ public:
       // if doing a zero-copy policy then ensure that each thread block
       // runs exclusively on a given SM - this is to ensure quality of
       // service for the packing kernel when running concurrently.
-      if (location & Host) param.shared_bytes = maxDynamicSharedBytesPerBlock() / 2 + 1;
+      if (location & Host || location & Shmem) param.shared_bytes = maxDynamicSharedBytesPerBlock() / 2 + 1;
 #ifndef STRIPED
-      if (location & Host) param.grid.x = minGridSize();
+      if (location & Host || location & Shmem) param.grid.x = minGridSize();
 #endif
     }
 
@@ -316,7 +325,7 @@ public:
       // if doing a zero-copy policy then ensure that each thread block
       // runs exclusively on a given SM - this is to ensure quality of
       // service for the packing kernel when running concurrently.
-      if (location & Host) param.shared_bytes = maxDynamicSharedBytesPerBlock() / 2 + 1;
+      if (location & Host || location & Shmem) param.shared_bytes = maxDynamicSharedBytesPerBlock() / 2 + 1;
 #ifndef STRIPED
       if (location & Host) param.grid.x = minGridSize();
 #endif
@@ -344,13 +353,13 @@ public:
 
   template <typename Float, int nColor>
   void PackGhost(void *ghost[], const ColorSpinorField &in, MemoryLocation location, int nFace, bool dagger, int parity,
-                 bool spin_project, double a, double b, double c, const qudaStream_t &stream)
+                 bool spin_project, double a, double b, double c, int shmem, const qudaStream_t &stream)
   {
     if (spin_project) {
-      Pack<Float, nColor, true> pack(ghost, in, location, nFace, dagger, parity, a, b, c);
+      Pack<Float, nColor, true> pack(ghost, in, location, nFace, dagger, parity, a, b, c, shmem);
       pack.apply(stream);
     } else {
-      Pack<Float, nColor, false> pack(ghost, in, location, nFace, dagger, parity, a, b, c);
+      Pack<Float, nColor, false> pack(ghost, in, location, nFace, dagger, parity, a, b, c, shmem);
       pack.apply(stream);
     }
   }
@@ -358,10 +367,10 @@ public:
   // template on the number of colors
   template <typename Float>
   void PackGhost(void *ghost[], const ColorSpinorField &in, MemoryLocation location, int nFace, bool dagger, int parity,
-                 bool spin_project, double a, double b, double c, const qudaStream_t &stream)
+                 bool spin_project, double a, double b, double c, int shmem, const qudaStream_t &stream)
   {
     if (in.Ncolor() == 3) {
-      PackGhost<Float, 3>(ghost, in, location, nFace, dagger, parity, spin_project, a, b, c, stream);
+      PackGhost<Float, 3>(ghost, in, location, nFace, dagger, parity, spin_project, a, b, c, shmem, stream);
     } else {
       errorQuda("Unsupported number of colors %d\n", in.Ncolor());
     }
@@ -369,7 +378,8 @@ public:
 
   // Pack the ghost for the Dslash operator
   void PackGhost(void *ghost[2 * QUDA_MAX_DIM], const ColorSpinorField &in, MemoryLocation location, int nFace,
-                 bool dagger, int parity, bool spin_project, double a, double b, double c, const qudaStream_t &stream)
+                 bool dagger, int parity, bool spin_project, double a, double b, double c, int shmem,
+                 const qudaStream_t &stream)
   {
     int nDimPack = 0;
     for (int d = 0; d < 4; d++) {
@@ -381,25 +391,25 @@ public:
 
     if (in.Precision() == QUDA_DOUBLE_PRECISION) {
 #if QUDA_PRECISION & 8
-      PackGhost<double>(ghost, in, location, nFace, dagger, parity, spin_project, a, b, c, stream);
+      PackGhost<double>(ghost, in, location, nFace, dagger, parity, spin_project, a, b, c, shmem, stream);
 #else
       errorQuda("QUDA_PRECISION=%d does not enable double precision", QUDA_PRECISION);
 #endif
     } else if (in.Precision() == QUDA_SINGLE_PRECISION) {
 #if QUDA_PRECISION & 4
-      PackGhost<float>(ghost, in, location, nFace, dagger, parity, spin_project, a, b, c, stream);
+      PackGhost<float>(ghost, in, location, nFace, dagger, parity, spin_project, a, b, c, shmem, stream);
 #else
       errorQuda("QUDA_PRECISION=%d does not enable single precision", QUDA_PRECISION);
 #endif
     } else if (in.Precision() == QUDA_HALF_PRECISION) {
 #if QUDA_PRECISION & 2
-      PackGhost<short>(ghost, in, location, nFace, dagger, parity, spin_project, a, b, c, stream);
+      PackGhost<short>(ghost, in, location, nFace, dagger, parity, spin_project, a, b, c, shmem, stream);
 #else
       errorQuda("QUDA_PRECISION=%d does not enable half precision", QUDA_PRECISION);
 #endif
     } else if (in.Precision() == QUDA_QUARTER_PRECISION) {
 #if QUDA_PRECISION & 1
-      PackGhost<char>(ghost, in, location, nFace, dagger, parity, spin_project, a, b, c, stream);
+      PackGhost<char>(ghost, in, location, nFace, dagger, parity, spin_project, a, b, c, shmem, stream);
 #else
       errorQuda("QUDA_PRECISION=%d does not enable quarter precision", QUDA_PRECISION);
 #endif
