@@ -105,8 +105,8 @@ namespace quda {
 
   };
 
-  __device__ unsigned int count[QUDA_MAX_MULTI_REDUCE] = { };
-  __shared__ bool isLastBlockDone;
+  __device__ static unsigned int count[QUDA_MAX_MULTI_REDUCE] = {};
+  __shared__ static bool isLastBlockDone;
 
   template <int block_size_x, int block_size_y, typename T, bool do_sum=true, typename Reducer=cub::Sum>
   __device__ inline void reduce2d(ReduceArg<T> arg, const T &in, const int idx=0) {
@@ -154,8 +154,7 @@ namespace quda {
   template <int block_size, typename T, bool do_sum = true, typename Reducer = cub::Sum>
   __device__ inline void reduce(ReduceArg<T> arg, const T &in, const int idx=0) { reduce2d<block_size, 1, T, do_sum, Reducer>(arg, in, idx); }
 
-
-  __shared__ volatile bool isLastWarpDone[16];
+  __shared__ static volatile bool isLastWarpDone[16];
 
 #if __COMPUTE_CAPABILITY__ >= 300
 

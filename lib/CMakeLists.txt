@@ -36,12 +36,12 @@ set (QUDA_OBJS
   solver.cpp inv_bicgstab_quda.cpp inv_cg_quda.cpp inv_bicgstabl_quda.cpp
   inv_multi_cg_quda.cpp inv_eigcg_quda.cpp gauge_ape.cu
   gauge_stout.cu gauge_wilson_flow.cu gauge_plaq.cu
-  laplace.cu gauge_laplace.cpp gauge_observable.cpp
+  gauge_laplace.cpp gauge_observable.cpp
   inv_cg3_quda.cpp inv_ca_gcr.cpp inv_ca_cg.cpp
   inv_gcr_quda.cpp inv_mr_quda.cpp inv_sd_quda.cpp inv_xsd_quda.cpp
   inv_pcg_quda.cpp inv_mre.cpp interface_quda.cpp util_quda.cpp
   color_spinor_field.cpp color_spinor_util.cu color_spinor_pack.cu
-  covDev.cu gauge_covdev.cpp
+  gauge_covdev.cpp 
   cpu_color_spinor_field.cpp cuda_color_spinor_field.cpp dirac.cpp
   clover_field.cpp lattice_field.cpp gauge_field.cpp
   cpu_gauge_field.cpp cuda_gauge_field.cpp extract_gauge_ghost.cu
@@ -53,17 +53,6 @@ set (QUDA_OBJS
   dirac_twisted_mass.cpp 
   llfat_quda.cu gauge_force.cu gauge_random.cu
   gauge_field_strength_tensor.cu clover_quda.cu dslash_quda.cu
-  dslash_staggered.cu dslash_improved_staggered.cu
-  dslash_wilson.cu dslash_wilson_clover.cu dslash5_domain_wall.cu
-  dslash_wilson_clover_preconditioned.cu 
-  dslash_twisted_mass.cu dslash_twisted_mass_preconditioned.cu
-  dslash_ndeg_twisted_mass.cu dslash_ndeg_twisted_mass_preconditioned.cu
-  dslash_twisted_clover.cu dslash_twisted_clover_preconditioned.cu
-  dslash_wilson_clover_hasenbusch_twist.cu
-  dslash_wilson_clover_hasenbusch_twist_preconditioned.cu
-  dslash_domain_wall_4d.cu  dslash_domain_wall_5d.cu
-  mdw_fused_dslash.cu dslash5_mobius_eofa.cu
-  dslash_pack2.cu
   blas_quda.cu multi_blas_quda.cu reduce_quda.cu
   multi_reduce_quda.cu contract.cu
   comm_common.cpp 
@@ -99,6 +88,24 @@ set (QUDA_OBJS
   quda_cuda_api.cpp deflation.cpp checksum.cu
   instantiate.cpp version.cpp )
 # cmake-format: on
+
+# current workaround for nvshmem
+set(QUDA_DSLASH_OBJS 
+  dslash_staggered.cu dslash_improved_staggered.cu
+  dslash_wilson.cu dslash_wilson_clover.cu dslash5_domain_wall.cu
+  dslash_wilson_clover_preconditioned.cu 
+  dslash_twisted_mass.cu dslash_twisted_mass_preconditioned.cu
+  dslash_ndeg_twisted_mass.cu dslash_ndeg_twisted_mass_preconditioned.cu
+  dslash_twisted_clover.cu dslash_twisted_clover_preconditioned.cu
+  dslash_wilson_clover_hasenbusch_twist.cu
+  dslash_wilson_clover_hasenbusch_twist_preconditioned.cu
+  dslash_domain_wall_4d.cu  dslash_domain_wall_5d.cu
+  mdw_fused_dslash.cu dslash5_mobius_eofa.cu
+  dslash_pack2.cu laplace.cu covDev.cu)
+
+if(NOT QUDA_NVSHMEM)
+  list(APPEND QUDA_OBJS ${QUDA_DSLASH_OBJS})
+endif()
 
 # split source into cu and cpp files
 foreach(item ${QUDA_OBJS})
@@ -140,25 +147,23 @@ target_sources(quda_cpp PRIVATE $<IF:$<BOOL:${QUDA_MPI}>,comm_mpi.cpp,$<IF:$<BOO
 
 target_sources(quda_cpp PRIVATE $<$<BOOL:${QUDA_QIO}>:qio_field.cpp layout_hyper.cpp>)
 
-
-
 # add some deifnitions that cause issues with cmake 3.7 and nvcc only to cpp files
 target_compile_definitions(quda_cpp PUBLIC -DQUDA_HASH="${HASH}")
 if(GITVERSION)
   target_compile_definitions(quda_cpp PUBLIC -DGITVERSION="${GITVERSION}")
 endif()
 
-
 # make one library
 if(QUDA_BUILD_SHAREDLIB)
   set_target_properties(quda_cpp PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
-  add_library(quda SHARED $<TARGET_OBJECTS:quda_cpp> ${QUDA_CU_OBJS})
+  add_library(quda SHARED $<TARGET_OBJECTS:quda_cpp> $<$<TARGET_EXISTS:quda_pack>:$<TARGET_OBJECTS:quda_pack>> ${QUDA_CU_OBJS})
   if(CUDAToolkit_FOUND)
     target_link_libraries(quda INTERFACE CUDA::cudart_static)
   endif()
 else()
-  add_library(quda STATIC $<TARGET_OBJECTS:quda_cpp> ${QUDA_CU_OBJS})
+  add_library(quda STATIC $<TARGET_OBJECTS:quda_cpp> $<$<TARGET_EXISTS:quda_pack>:$<TARGET_OBJECTS:quda_pack>> ${QUDA_CU_OBJS})
 endif()
+
 
 # malloc.cpp uses both the driver and runtime api So we need to find the CUDA_CUDA_LIBRARY (driver api) or the stub
 # version for cmake 3.8 and later this has been integrated into  FindCUDALibs.cmake
@@ -200,6 +205,22 @@ target_include_directories(quda PUBLIC $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/inc
 target_compile_definitions(quda_cpp PRIVATE $<TARGET_PROPERTY:quda,COMPILE_DEFINITIONS>)
 target_include_directories(quda_cpp PRIVATE $<TARGET_PROPERTY:quda,INCLUDE_DIRECTORIES>)
 target_compile_options(quda_cpp PRIVATE $<TARGET_PROPERTY:quda,COMPILE_OPTIONS>)
+
+# nvshmem enabled parts need CUDA_SEPARABLE_COMPILATION ...
+if(QUDA_NVSHMEM)
+  add_library(quda_pack OBJECT ${QUDA_DSLASH_OBJS})
+  target_include_directories(quda_pack PRIVATE dslash_core)
+  target_include_directories(quda_pack SYSTEM PRIVATE ../include/externals)
+  target_include_directories(quda_pack PRIVATE .)
+  if(QUDA_BUILD_SHAREDLIB)
+    set_target_properties(quda_pack PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+  endif()
+  target_compile_definitions(quda_pack PRIVATE $<TARGET_PROPERTY:quda,COMPILE_DEFINITIONS>)
+  target_include_directories(quda_pack PRIVATE $<TARGET_PROPERTY:quda,INCLUDE_DIRECTORIES>)
+  target_compile_options(quda_pack PRIVATE $<TARGET_PROPERTY:quda,COMPILE_OPTIONS>)
+  set_target_properties(quda_pack PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+  set_property(TARGET quda PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+endif()
 
 # add target specific files		
 if(${QUDA_TARGET_TYPE} STREQUAL "CUDA")		
@@ -379,6 +400,19 @@ if(QUDA_QMP)
   target_compile_definitions(quda PUBLIC QMP_COMMS)
   target_link_libraries(quda INTERFACE ${QUDA_QMP_LDFLAGS} ${QUDA_QMP_LIBS})
   target_link_libraries(quda PUBLIC MPI::MPI_CXX)
+endif()
+
+if(QUDA_NVSHMEM)
+  target_link_libraries(quda PUBLIC MPI::MPI_C)
+  target_compile_definitions(quda PUBLIC NVSHMEM_COMMS)
+  if(QUDA_DOWNLOAD_NVSHMEM)
+    add_dependencies(quda NVSHMEM)
+    add_dependencies(quda_cpp NVSHMEM)
+    add_dependencies(quda_pack NVSHMEM)
+  endif()
+  get_filename_component(NVSHMEM_LIBPATH ${NVSHMEM_LIBS} DIRECTORY)
+  target_link_libraries(quda PUBLIC -L${NVSHMEM_LIBPATH} -lnvshmem)
+  target_include_directories(quda SYSTEM PUBLIC $<BUILD_INTERFACE:${NVSHMEM_INCLUDE}>)
 endif()
 
 if(QUDA_QIO)
