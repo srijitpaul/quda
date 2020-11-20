@@ -54,6 +54,7 @@ extern "C" {
   typedef enum QudaTboundary_s {
     QUDA_ANTI_PERIODIC_T = -1,
     QUDA_PERIODIC_T = 1,
+    QUDA_OPEN_T = 0,
     QUDA_INVALID_T_BOUNDARY = QUDA_INVALID_ENUM
   } QudaTboundary;
 

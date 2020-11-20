@@ -57,14 +57,14 @@ if(QUDA_DIRAC_WILSON
    OR QUDA_DIRAC_TWISTED_CLOVER
    OR QUDA_DIRAC_NDEG_TWISTED_MASS
    OR QUDA_DIRAC_DOMAIN_WALL)
-  cuda_add_executable(dslash_test dslash_test.cpp dslash_test_helpers.cpp wilson_dslash_reference.cpp domain_wall_dslash_reference.cpp
-                      clover_reference.cpp blas_reference.cpp)
-  cuda_add_executable(dslash_ctest dslash_ctest.cpp dslash_test_helpers.cpp wilson_dslash_reference.cpp domain_wall_dslash_reference.cpp
-                      clover_reference.cpp blas_reference.cpp)
-  target_link_libraries(dslash_test ${TEST_LIBS})
-  target_link_libraries(dslash_ctest ${TEST_LIBS})
-  quda_checkbuildtest(dslash_test QUDA_BUILD_ALL_TESTS)
-  quda_checkbuildtest(dslash_ctest QUDA_BUILD_ALL_TESTS)
+ ##  cuda_add_executable(dslash_test dslash_test.cpp dslash_test_helpers.cpp wilson_dslash_reference.cpp domain_wall_dslash_reference.cpp
+ ##                      clover_reference.cpp blas_reference.cpp)
+ ##  cuda_add_executable(dslash_ctest dslash_ctest.cpp dslash_test_helpers.cpp wilson_dslash_reference.cpp domain_wall_dslash_reference.cpp
+ ##                      clover_reference.cpp blas_reference.cpp)
+ ##  target_link_libraries(dslash_test ${TEST_LIBS})
+ ##  target_link_libraries(dslash_ctest ${TEST_LIBS})
+ ##  quda_checkbuildtest(dslash_test QUDA_BUILD_ALL_TESTS)
+ ##  quda_checkbuildtest(dslash_ctest QUDA_BUILD_ALL_TESTS)
 
   cuda_add_executable(invert_test invert_test.cpp wilson_dslash_reference.cpp domain_wall_dslash_reference.cpp
                       clover_reference.cpp blas_reference.cpp)
@@ -284,43 +284,43 @@ foreach(pol IN LISTS DSLASH_POLICIES)
     set(polenv ON)
   endif()
 
-  if(QUDA_DIRAC_WILSON)
-    add_test(NAME dslash_wilson-policy${pol2}
-             COMMAND ${QUDA_CTEST_LAUNCH} $<TARGET_FILE:dslash_ctest> ${MPIEXEC_POSTFLAGS}
-                     --dslash-type wilson
-                     --test MatPCDagMatPC
-                     --dim 2 4 6 8
-                     --gtest_output=xml:dslash_wilson_test_pol${pol2}.xml)
-    if(polenv)
-      set_tests_properties(dslash_wilson-policy${pol2} PROPERTIES ENVIRONMENT QUDA_ENABLE_DSLASH_POLICY=${pol})
-    endif()
-  endif()
+  ##  if(QUDA_DIRAC_WILSON)
+  ##    add_test(NAME dslash_wilson-policy${pol2}
+  ##             COMMAND ${QUDA_CTEST_LAUNCH} $<TARGET_FILE:dslash_ctest> ${MPIEXEC_POSTFLAGS}
+  ##                     --dslash-type wilson
+  ##                     --test MatPCDagMatPC
+  ##                     --dim 2 4 6 8
+  ##                     --gtest_output=xml:dslash_wilson_test_pol${pol2}.xml)
+  ##    if(polenv)
+  ##      set_tests_properties(dslash_wilson-policy${pol2} PROPERTIES ENVIRONMENT QUDA_ENABLE_DSLASH_POLICY=${pol})
+  ##    endif()
+  ##  endif()
 
-  if(QUDA_DIRAC_CLOVER)
-    # symmetric preconditioning
-    add_test(NAME dslash_clover-sym-policy${pol2}
-             COMMAND ${QUDA_CTEST_LAUNCH} $<TARGET_FILE:dslash_ctest> ${MPIEXEC_POSTFLAGS}
-                     --dslash-type clover
-                     --test MatPCDagMatPC
-                     --matpc even-even
-                     --dim 2 4 6 8
-                     --gtest_output=xml:dslash_clover_test_pol${pol2}.xml)
-    if(polenv)
-      set_tests_properties(dslash_clover-sym-policy${pol2} PROPERTIES ENVIRONMENT QUDA_ENABLE_DSLASH_POLICY=${pol})
-    endif()
-
-    # asymmetric preconditioning
-    add_test(NAME dslash_clover-asym-policy${pol2}
-             COMMAND ${QUDA_CTEST_LAUNCH} $<TARGET_FILE:dslash_ctest> ${MPIEXEC_POSTFLAGS}
-                     --dslash-type clover
-                     --test MatPCDagMatPC
-                     --matpc even-even-asym
-                     --dim 2 4 6 8
-                     --gtest_output=xml:dslash_clover_test_pol${pol2}.xml)
-    if(polenv)
-      set_tests_properties(dslash_clover-asym-policy${pol2} PROPERTIES ENVIRONMENT QUDA_ENABLE_DSLASH_POLICY=${pol})
-    endif()
-  endif()
+  ##  if(QUDA_DIRAC_CLOVER)
+  ##    # symmetric preconditioning
+  ##    add_test(NAME dslash_clover-sym-policy${pol2}
+  ##             COMMAND ${QUDA_CTEST_LAUNCH} $<TARGET_FILE:dslash_ctest> ${MPIEXEC_POSTFLAGS}
+  ##                     --dslash-type clover
+  ##                     --test MatPCDagMatPC
+  ##                     --matpc even-even
+  ##                     --dim 2 4 6 8
+  ##                     --gtest_output=xml:dslash_clover_test_pol${pol2}.xml)
+  ##    if(polenv)
+  ##      set_tests_properties(dslash_clover-sym-policy${pol2} PROPERTIES ENVIRONMENT QUDA_ENABLE_DSLASH_POLICY=${pol})
+  ##    endif()
+  ##
+  ##    # asymmetric preconditioning
+  ##    add_test(NAME dslash_clover-asym-policy${pol2}
+  ##             COMMAND ${QUDA_CTEST_LAUNCH} $<TARGET_FILE:dslash_ctest> ${MPIEXEC_POSTFLAGS}
+  ##                     --dslash-type clover
+  ##                     --test MatPCDagMatPC
+  ##                     --matpc even-even-asym
+  ##                     --dim 2 4 6 8
+  ##                     --gtest_output=xml:dslash_clover_test_pol${pol2}.xml)
+  ##    if(polenv)
+  ##      set_tests_properties(dslash_clover-asym-policy${pol2} PROPERTIES ENVIRONMENT QUDA_ENABLE_DSLASH_POLICY=${pol})
+  ##    endif()
+  ##  endif()
 
  if(QUDA_DIRAC_CLOVER_HASENBUSCH_TWIST)
     # symmetric preconditioning

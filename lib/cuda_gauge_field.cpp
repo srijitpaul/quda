@@ -215,6 +215,7 @@ namespace quda {
   // it into the ghost array of the next node
   void cudaGaugeField::exchangeGhost(QudaLinkDirection link_direction) {
 
+    if (t_boundary == QUDA_OPEN_T) printfQuda("Gauge field has open boundary conditions");
     if (ghostExchange != QUDA_GHOST_EXCHANGE_PAD) errorQuda("Cannot call exchangeGhost with ghostExchange=%d", ghostExchange);
     if (geometry != QUDA_VECTOR_GEOMETRY && geometry != QUDA_COARSE_GEOMETRY) errorQuda("Invalid geometry=%d", geometry);
     if ( (link_direction == QUDA_LINK_BIDIRECTIONAL || link_direction == QUDA_LINK_FORWARDS) && geometry != QUDA_COARSE_GEOMETRY)
